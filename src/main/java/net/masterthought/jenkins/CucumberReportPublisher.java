@@ -1,9 +1,25 @@
 package net.masterthought.jenkins;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import javax.servlet.ServletException;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.tools.ant.DirectoryScanner;
+import org.kohsuke.stapler.AncestorInPath;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.QueryParameter;
+
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.Launcher;
-import hudson.model.*;
+import hudson.model.AbstractBuild;
+import hudson.model.AbstractProject;
+import hudson.model.Action;
+import hudson.model.BuildListener;
+import hudson.model.Computer;
 import hudson.slaves.SlaveComputer;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.BuildStepMonitor;
@@ -11,17 +27,6 @@ import hudson.tasks.Publisher;
 import hudson.tasks.Recorder;
 import hudson.util.FormValidation;
 import net.masterthought.cucumber.ReportBuilder;
-import org.apache.commons.io.FileUtils;
-import org.apache.tools.ant.DirectoryScanner;
-import org.kohsuke.stapler.AncestorInPath;
-import org.kohsuke.stapler.DataBoundConstructor;
-import org.kohsuke.stapler.QueryParameter;
-
-import javax.servlet.ServletException;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 
 public class CucumberReportPublisher extends Recorder {
 
@@ -50,12 +55,12 @@ public class CucumberReportPublisher extends Recorder {
 
     @Override
     public boolean perform(AbstractBuild<?, ?> build, Launcher launcher, BuildListener listener)
-            throws IOException, InterruptedException {
+        throws IOException, InterruptedException {
 
         listener.getLogger().println("[CucumberReportPublisher] Compiling Cucumber Html Reports ...");
 
         File workspaceJsonReportDirectory = new File(build.getWorkspace().toURI().getPath());
-        if(!jsonReportDirectory.isEmpty()){
+        if (!jsonReportDirectory.isEmpty()) {
             workspaceJsonReportDirectory = new File(build.getWorkspace().toURI().getPath(), jsonReportDirectory);
         }
         File targetBuildDirectory = new File(build.getRootDir(), "cucumber-html-reports");
@@ -74,8 +79,8 @@ public class CucumberReportPublisher extends Recorder {
             listener.getLogger().println("[CucumberReportPublisher] detected this build is running on a slave ");
             FilePath projectWorkspaceOnSlave = build.getProject().getSomeWorkspace();
             FilePath masterJsonReportDirectory = new FilePath(targetBuildDirectory);
-            listener.getLogger().println("[CucumberReportPublisher] copying json from: " +  projectWorkspaceOnSlave.toURI() + "to reports directory: " + masterJsonReportDirectory.toURI());
-            projectWorkspaceOnSlave.copyRecursiveTo("**/*.json","", masterJsonReportDirectory);
+            listener.getLogger().println("[CucumberReportPublisher] copying json from: " + projectWorkspaceOnSlave.toURI() + "to reports directory: " + masterJsonReportDirectory.toURI());
+            projectWorkspaceOnSlave.copyRecursiveTo("**/*.json", "", masterJsonReportDirectory);
         } else {
             // if we are on the master
             listener.getLogger().println("[CucumberReportPublisher] detected this build is running on the master ");
@@ -95,7 +100,13 @@ public class CucumberReportPublisher extends Recorder {
         String[] jsonReportFiles = findJsonFiles(targetBuildDirectory);
         if (jsonReportFiles.length != 0) {
             listener.getLogger().println("[CucumberReportPublisher] Generating HTML reports");
-            ReportBuilder reportBuilder = new ReportBuilder(fullPathToJsonFiles(jsonReportFiles, targetBuildDirectory), targetBuildDirectory, pluginUrlPath, buildNumber, buildProject, skippedFails, undefinedFails, !noFlashCharts, true);
+            ReportBuilder reportBuilder = null;
+            try {
+                reportBuilder = new ReportBuilder(fullPathToJsonFiles(jsonReportFiles, targetBuildDirectory), targetBuildDirectory, pluginUrlPath, buildNumber, buildProject, skippedFails,
+                    undefinedFails, !noFlashCharts, true, false, "");
+            } catch (Exception e) {
+
+            }
 
             try {
                 reportBuilder.generateReports();
@@ -128,13 +139,14 @@ public class CucumberReportPublisher extends Recorder {
     public static class DescriptorImpl extends BuildStepDescriptor<Publisher> {
         @Override
         public String getDisplayName() {
-			return Messages.CucumberReportPublisher_DisplayName();
+            return "Publish cucumber results as a report";
         }
 
 
         // Performs on-the-fly validation on the file mask wildcard.
-        public FormValidation doCheck(@AncestorInPath AbstractProject project,
-                                      @QueryParameter String value) throws IOException, ServletException {
+        public FormValidation doCheck(
+            @AncestorInPath AbstractProject project,
+            @QueryParameter String value) throws IOException, ServletException {
             FilePath ws = project.getSomeWorkspace();
             return ws != null ? ws.validateRelativeDirectory(value) : FormValidation.ok();
         }
